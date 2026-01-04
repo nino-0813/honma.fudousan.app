@@ -1,18 +1,30 @@
 import OpenAI from "openai";
 
 export class OpenAIService {
-  private client: OpenAI;
+  private client: OpenAI | null = null;
 
-  constructor() {
-    // Always use process.env.API_KEY directly for initialization as per guidelines.
-    const apiKey = process.env.API_KEY || process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new Error("OpenAI API key is not set. Please set OPENAI_API_KEY in your environment variables.");
+  private getApiKey(): string | null {
+    // Viteでは VITE_ プレフィックス付きの環境変数は自動的に import.meta.env に注入される
+    // vite.config.ts の define で process.env にも設定される
+    return (import.meta.env.VITE_OPENAI_API_KEY as string) || 
+           (import.meta.env.OPENAI_API_KEY as string) ||
+           (process.env.API_KEY as string) || 
+           (process.env.OPENAI_API_KEY as string) ||
+           null;
+  }
+
+  private getClient(): OpenAI {
+    if (!this.client) {
+      const apiKey = this.getApiKey();
+      if (!apiKey) {
+        throw new Error("OpenAI API key is not set. Please set VITE_OPENAI_API_KEY in your environment variables.");
+      }
+      this.client = new OpenAI({
+        apiKey: apiKey,
+        dangerouslyAllowBrowser: true // Note: In production, API calls should be made from a backend server
+      });
     }
-    this.client = new OpenAI({
-      apiKey: apiKey,
-      dangerouslyAllowBrowser: true // Note: In production, API calls should be made from a backend server
-    });
+    return this.client;
   }
 
   async getInvestmentAdvice(query: string, context?: any) {
@@ -38,7 +50,8 @@ export class OpenAIService {
     `;
 
     try {
-      const completion = await this.client.chat.completions.create({
+      const client = this.getClient();
+      const completion = await client.chat.completions.create({
         model: "gpt-4o-mini", // または "gpt-4o" を使用可能
         messages: [
           {
@@ -59,8 +72,11 @@ export class OpenAIService {
       }
       
       return responseText;
-    } catch (error) {
+    } catch (error: any) {
       console.error("OpenAI API Error:", error);
+      if (error?.message?.includes("API key is not set")) {
+        return "⚠️ OpenAI APIキーが設定されていません。Vercelの環境変数設定で `VITE_OPENAI_API_KEY` を設定してください。";
+      }
       return "申し訳ありません。AIアドバイザーとの通信中にエラーが発生しました。時間を置いて再度お試しください。";
     }
   }
